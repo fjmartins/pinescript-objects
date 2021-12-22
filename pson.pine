@@ -1,0 +1,124 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © marspumpkin
+//@version=5
+
+// @description: PineScript Object Notation. 
+// A workaround not having objects in pinescript. 
+// This is a Json-look-alike interpreter. 
+// Format: '{attr={a={b=c:d={e=f}}}:attr1=value1:attr3={obj=val}}'
+// Please only use whitespaces in the values
+library("pson")
+
+LINE_BREAK = ':'
+EQUALS = '='
+OBJ_BOUNDS_0 = '{'
+OBJ_BOUNDS_1 = '}'
+
+valid_syntax(string pson) => // more syntax checks to be added later
+    str.startswith(pson, OBJ_BOUNDS_0) and str.endswith(pson, OBJ_BOUNDS_1)
+
+get_pson_string(string pson) =>
+    str.substring(pson, 1, str.length(pson) - 1)
+
+char_at(string my_string, int i) =>
+    if (i < str.length(my_string))
+        str.substring(my_string, i, i + 1)
+    else
+        na
+        
+export get_iterable(string pson) =>
+    itterable = array.new_string(0)
+    
+    if valid_syntax(pson)
+        pson_string = get_pson_string(pson)
+        
+        if not (str.contains(pson_string, '{') and str.contains(pson_string, '}'))
+            str.split(pson_string, ':')
+        else // object within
+            attr_start = 0
+            depth = 0
+            
+            length = str.length(pson_string)
+            for i = 0 to length
+                char = char_at(pson_string, i)
+                if char == OBJ_BOUNDS_0
+                    depth := depth + 1
+                if char == OBJ_BOUNDS_1
+                    depth := depth - 1
+                    
+                if depth == 0 and (char == LINE_BREAK or i == length)
+                    array.push(itterable, str.substring(pson_string, attr_start, i))
+                    attr_start := i + 1
+                    
+            itterable            
+    else
+        itterable
+
+export set(string pson, string attribute, string value) =>
+    if valid_syntax(pson)
+        result = ''
+        for a in get_iterable(pson)
+            attr = str.substring(a, 0, str.pos(a, EQUALS))
+            val = str.substring(a, str.pos(a, EQUALS) + 1, str.length(a))
+        
+            if (attribute == attr)
+                val := value
+                
+            result := result + attr + EQUALS + val + LINE_BREAK
+        
+        result := OBJ_BOUNDS_0 + str.substring(result, 0, str.length(result) - 1) + OBJ_BOUNDS_1
+        result
+    else
+        na
+
+export add(string pson, string attr, string value) =>
+    if valid_syntax(pson)
+        result = ''
+        pson_string = get_pson_string(pson)
+        
+        if str.contains(pson, attr + EQUALS)
+            result := set(pson, attr, value)
+        else
+            if pson_string == ''
+                result := OBJ_BOUNDS_0 + attr + EQUALS + value + OBJ_BOUNDS_1
+            else
+                result := OBJ_BOUNDS_0 + pson_string + LINE_BREAK + attr + EQUALS + value + OBJ_BOUNDS_1
+                
+        result
+    else 
+        na
+
+export get(string pson, string attribute) =>
+    result = ''
+    for a in get_iterable(pson)
+        attr = str.substring(a, 0, str.pos(a, EQUALS))
+        val = str.substring(a, str.pos(a, EQUALS) + 1, str.length(a))
+        
+        if (attribute == attr)
+            result := val
+            break
+    
+    result
+
+export get_number(string pson, string attr) =>
+    str.tonumber(get(pson, attr))
+
+export exists(string pson, string key) =>
+    str.contains(pson, key + EQUALS)
+
+// sample code below
+if barstate.islast
+    my_object = '{attr={a={b=c:d={e=f}}}:attr1=value1:attr3={obj=val}}'
+    output = get(my_object, 'attr')
+    output := get(output, 'a') // {b=c:d={e=f}}
+    output := get(output, 'd') // {e=f}
+    
+    // output := add('{}', 'key', 'value') // {key=value}
+    // output := add(output, 'key', 'value1') // {key=value1}
+    // output := add(output, 'key1', 'value2') // {key=value1:key1=value2}
+    // itter = get_iterable(my_object)
+    // output := array.get(itter, 0) // attr={a={b=c:d={e=f}}}
+    
+    label.new(x=bar_index, y=high, textcolor=color.yellow, text=output, size=size.normal, style=label.style_none)
+    
+plot(close)
